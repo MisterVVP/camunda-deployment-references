@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Minimal envsubst-compatible helper for this local reference. The shared
+# Keycloak manifests use ordinary $VAR / ${VAR} placeholders only, so pulling in
+# gettext just for envsubst is unnecessary.
+if (($#)); then
+    echo "ERROR: bundled envsubst does not accept a variable whitelist." >&2
+    exit 2
+fi
+
+# Preserve trailing newlines that command substitution would otherwise strip.
+data="$(cat; printf '\001')"
+data="${data%$'\001'}"
+
+while IFS='=' read -r name value; do
+    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    data="${data//\$\{$name\}/$value}"
+    data="${data//\$$name/$value}"
+done < <(env)
+
+printf '%s' "$data"

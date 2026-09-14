@@ -7,6 +7,8 @@ CAMUNDA_NAMESPACE ?= camunda
 CAMUNDA_RELEASE_NAME ?= camunda
 CERT_DIR ?= .certs
 STATE_DIR := $(abspath .state)
+TOOLS_BIN := $(abspath .tools/bin)
+BUNDLED_BIN := $(abspath bin)
 KUBECONFIG := $(STATE_DIR)/kubeconfig
 KUBECACHEDIR := $(STATE_DIR)/kubectl-cache
 HELM_CACHE_HOME := $(STATE_DIR)/helm/cache
@@ -14,10 +16,11 @@ HELM_CONFIG_HOME := $(STATE_DIR)/helm/config
 HELM_DATA_HOME := $(STATE_DIR)/helm/data
 DEPLOYMENT_READY_TIMEOUT_SECONDS ?= 900
 
+export PATH := $(TOOLS_BIN):$(BUNDLED_BIN):$(PATH)
 export CAMUNDA_NAMESPACE CAMUNDA_RELEASE_NAME CERT_DIR STATE_DIR KUBECONFIG KUBECACHEDIR
 export HELM_CACHE_HOME HELM_CONFIG_HOME HELM_DATA_HOME
 export DEPLOYMENT_READY_TIMEOUT_SECONDS SECONDARY_STORAGE
-export PURGE_MKCERT_CA FORCE_PURGE
+export PURGE_MKCERT_CA PURGE_PREREQUISITES FORCE_PURGE
 
 PROCEDURE_DIR := ./procedure
 
@@ -25,26 +28,38 @@ PROCEDURE_DIR := ./procedure
 help:
 	@echo "Camunda 8 on MicroK8s - Local Development"
 	@echo ""
-	@echo "Choose secondary storage before init:"
-	@echo "  SECONDARY_STORAGE=elasticsearch   # full platform incl. Optimize"
-	@echo "  SECONDARY_STORAGE=postgres        # lighter RDBMS mode, no Optimize"
+	@echo "Golden path (installs/checks prerequisites, then deploys full TLS + Elasticsearch):"
+	@echo "  ./install.sh"
+	@echo "  ./install.sh --yes                    # non-interactive prerequisite acceptance"
+	@echo "  ./install.sh --secondary-storage postgres"
+	@echo "  ./install.sh --mode no-domain"
 	@echo ""
-	@echo "Quick start:"
+	@echo "Advanced/manual path:"
+	@echo "  make prerequisites                    # install missing prerequisites only"
 	@echo "  SECONDARY_STORAGE=elasticsearch make domain.init"
 	@echo "  SECONDARY_STORAGE=postgres make domain.init"
 	@echo "  SECONDARY_STORAGE=elasticsearch make no-domain.init"
 	@echo "  SECONDARY_STORAGE=postgres make no-domain.init"
 	@echo ""
 	@echo "Cleanup:"
-	@echo "  make purge                         # remove everything this reference added"
-	@echo "  PURGE_MKCERT_CA=1 make purge       # also uninstall a pre-existing mkcert CA"
-	@echo "  make verify-clean                  # verify there are no Camunda leftovers"
+	@echo "  make purge                            # remove deployment + repo-local bootstrap tools"
+	@echo "  PURGE_PREREQUISITES=1 make purge      # also undo host prerequisites installed by bootstrap"
+	@echo "  PURGE_MKCERT_CA=1 make purge          # also uninstall a pre-existing mkcert CA"
+	@echo "  make verify-clean                     # verify there are no Camunda leftovers"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  make status"
 	@echo "  make port-forward"
 	@echo "  make get-password"
 	@echo "  make get-keycloak-password"
+
+.PHONY: prerequisites
+prerequisites:
+	@$(PROCEDURE_DIR)/install-prerequisites.sh
+
+.PHONY: prerequisites.check
+prerequisites.check:
+	@$(PROCEDURE_DIR)/install-prerequisites.sh --check
 
 .PHONY: validate-storage
 validate-storage:
@@ -56,14 +71,14 @@ validate-storage:
 	fi
 
 .PHONY: domain.init
-domain.init: validate-storage cluster.prepare ingress.deploy coredns.config hosts.add certs.generate certs.create-secret certs.create-ca-configmap operators.deploy-domain identity-secrets.create camunda.deploy-domain camunda.wait
+domain.init: validate-storage prerequisites.check cluster.prepare ingress.deploy coredns.config hosts.add certs.generate certs.create-secret certs.create-ca-configmap operators.deploy-domain identity-secrets.create camunda.deploy-domain camunda.wait
 	@echo ""
 	@echo "✓ Camunda on MicroK8s is ready"
 	@echo "  https://camunda.example.com"
 	@$(PROCEDURE_DIR)/kind-helper.sh get-password.sh | sed 's/^/  admin password: /'
 
 .PHONY: no-domain.init
-no-domain.init: validate-storage cluster.prepare hosts.add-keycloak operators.deploy-no-domain identity-secrets.create camunda.deploy-no-domain camunda.wait
+no-domain.init: validate-storage prerequisites.check cluster.prepare hosts.add-keycloak operators.deploy-no-domain identity-secrets.create camunda.deploy-no-domain camunda.wait
 	@echo ""
 	@echo "✓ Camunda on MicroK8s is ready"
 	@echo "  Run: make port-forward"
@@ -136,6 +151,7 @@ camunda.uninstall:
 .PHONY: purge
 purge:
 	@$(PROCEDURE_DIR)/purge.sh
+	@$(PROCEDURE_DIR)/cleanup-prerequisites.sh
 
 .PHONY: verify-clean
 verify-clean:

@@ -4,6 +4,12 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 require_cmd microk8s
 
+# After a successful purge the repo-local kubectl wrapper is intentionally gone.
+# Keep standalone verification usable by falling back to MicroK8s' bundled kubectl.
+if ! command -v kubectl >/dev/null 2>&1; then
+    kubectl() { microk8s kubectl "$@"; }
+fi
+
 # Verification must not recreate .state after a successful purge.
 _verify_tmp_dir=""
 if [[ ! -s "$KUBECONFIG" ]]; then

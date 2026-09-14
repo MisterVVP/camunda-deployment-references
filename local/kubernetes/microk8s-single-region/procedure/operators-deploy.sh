@@ -5,7 +5,6 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 ensure_kubeconfig
 require_cmd kubectl
 require_cmd curl
-require_cmd yq
 require_cmd envsubst
 
 SECONDARY_STORAGE="${SECONDARY_STORAGE:-}"
@@ -22,7 +21,6 @@ export CAMUNDA_DOMAIN CAMUNDA_NAMESPACE
 
 OPERATOR_BASE="$ROOT_DIR/../../../generic/kubernetes/operator-based"
 CONFIGS_DIR="$ROOT_DIR/configs"
-CLUSTER_FILTER="${CLUSTER_FILTER:-pg-keycloak,pg-identity,pg-webmodeler}"
 
 claim_cluster_resource() {
     local state_key="$1" description="$2"
@@ -58,10 +56,22 @@ claim_cluster_resource cnpg_installed_by_us "CloudNativePG installation" \
 
 (
     cd "$OPERATOR_BASE/postgresql"
+
+    # Deploy the three application PostgreSQL clusters without CLUSTER_FILTER.
+    # The generic deploy script only needs yq for filtered deployment, so this
+    # keeps yq out of the local MicroK8s dependency set entirely.
+    CLUSTER_FILTER="" ./deploy.sh
+
     if [[ "$SECONDARY_STORAGE" == "postgres" ]]; then
-        CLUSTER_FILTER="${CLUSTER_FILTER:+$CLUSTER_FILTER,}pg-camunda"
+        echo "Deploying PostgreSQL orchestration cluster..."
+        # set-secrets.sh above created pg-camunda credentials too because the
+        # unfiltered path creates secrets for every known local cluster.
+        kubectl apply --server-side \
+            -f postgresql-orchestration-cluster.yml \
+            -n "$CAMUNDA_NAMESPACE"
+        kubectl wait --for=condition=Ready --timeout=600s \
+            cluster/pg-camunda -n "$CAMUNDA_NAMESPACE"
     fi
-    CLUSTER_FILTER="$CLUSTER_FILTER" ./deploy.sh
 )
 
 claim_cluster_resource keycloak_operator_installed_by_us "Keycloak operator CRDs" \

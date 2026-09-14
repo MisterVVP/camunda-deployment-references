@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+TOOLS_DIR="${TOOLS_DIR:-$ROOT_DIR/.tools}"
 STATE_DIR="${STATE_DIR:-$ROOT_DIR/.state}"
 STATE_FILE="$STATE_DIR/install-state"
 KUBECONFIG="${KUBECONFIG:-$STATE_DIR/kubeconfig}"
@@ -10,7 +11,8 @@ KUBECACHEDIR="${KUBECACHEDIR:-$STATE_DIR/kubectl-cache}"
 HELM_CACHE_HOME="${HELM_CACHE_HOME:-$STATE_DIR/helm/cache}"
 HELM_CONFIG_HOME="${HELM_CONFIG_HOME:-$STATE_DIR/helm/config}"
 HELM_DATA_HOME="${HELM_DATA_HOME:-$STATE_DIR/helm/data}"
-export STATE_DIR STATE_FILE KUBECONFIG KUBECACHEDIR
+PATH="$TOOLS_DIR/bin:$ROOT_DIR/bin:$PATH"
+export TOOLS_DIR STATE_DIR STATE_FILE KUBECONFIG KUBECACHEDIR PATH
 export HELM_CACHE_HOME HELM_CONFIG_HOME HELM_DATA_HOME
 
 state_get() {
@@ -44,6 +46,7 @@ state_true() {
 require_cmd() {
     command -v "$1" >/dev/null 2>&1 || {
         echo "ERROR: required command '$1' was not found." >&2
+        echo "       Run ./install.sh (golden path) or make prerequisites." >&2
         exit 1
     }
 }

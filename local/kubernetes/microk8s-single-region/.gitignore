@@ -1,3 +1,4 @@
 .certs/
 .state/
+.tools/
 .camunda-platform-helm/
