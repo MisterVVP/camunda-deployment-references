@@ -19,7 +19,7 @@ DEPLOYMENT_READY_TIMEOUT_SECONDS ?= 900
 export PATH := $(TOOLS_BIN):$(BUNDLED_BIN):$(PATH)
 export CAMUNDA_NAMESPACE CAMUNDA_RELEASE_NAME CERT_DIR STATE_DIR KUBECONFIG KUBECACHEDIR
 export HELM_CACHE_HOME HELM_CONFIG_HOME HELM_DATA_HOME
-export DEPLOYMENT_READY_TIMEOUT_SECONDS SECONDARY_STORAGE
+export DEPLOYMENT_READY_TIMEOUT_SECONDS SECONDARY_STORAGE INGRESS_PROVIDER INGRESS_ADDRESS
 export PURGE_MKCERT_CA PURGE_PREREQUISITES FORCE_PURGE
 
 PROCEDURE_DIR := ./procedure
@@ -33,6 +33,7 @@ help:
 	@echo "  ./install.sh --yes                    # non-interactive prerequisite acceptance"
 	@echo "  ./install.sh --secondary-storage postgres"
 	@echo "  ./install.sh --mode no-domain"
+	@echo "  ./install.sh --ingress-provider traefik  # require/reuse existing Traefik"
 	@echo ""
 	@echo "Advanced/manual path:"
 	@echo "  make prerequisites                    # install missing prerequisites only"
@@ -71,7 +72,7 @@ validate-storage:
 	fi
 
 .PHONY: domain.init
-domain.init: validate-storage prerequisites.check cluster.prepare ingress.deploy coredns.config hosts.add certs.generate certs.create-secret certs.create-ca-configmap operators.deploy-domain identity-secrets.create camunda.deploy-domain camunda.wait
+domain.init: validate-storage prerequisites.check cluster.prepare ingress.configure coredns.config hosts.add certs.generate certs.create-secret certs.create-ca-configmap operators.deploy-domain identity-secrets.create camunda.deploy-domain camunda.wait
 	@echo ""
 	@echo "✓ Camunda on MicroK8s is ready"
 	@echo "  https://camunda.example.com"
@@ -91,9 +92,12 @@ domain.clean no-domain.clean: purge
 cluster.prepare:
 	@$(PROCEDURE_DIR)/cluster-prepare.sh
 
-.PHONY: ingress.deploy
-ingress.deploy:
-	@$(PROCEDURE_DIR)/contour-deploy.sh
+.PHONY: ingress.configure ingress.deploy
+ingress.configure:
+	@$(PROCEDURE_DIR)/ingress-configure.sh
+
+# Backwards-compatible alias for development scripts that used the old target.
+ingress.deploy: ingress.configure
 
 .PHONY: coredns.config
 coredns.config:

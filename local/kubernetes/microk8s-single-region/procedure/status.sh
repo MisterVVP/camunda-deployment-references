@@ -21,5 +21,17 @@ echo
 echo "=== Camunda ==="
 kubectl get all,pvc -n "${CAMUNDA_NAMESPACE:-camunda}" 2>/dev/null || echo "Camunda namespace not present"
 echo
-echo "=== Contour ==="
-kubectl get pods -n projectcontour 2>/dev/null || echo "Contour not present"
+echo "=== Ingress ==="
+provider="$(state_get ingress_provider "")"
+if [[ -n "$provider" ]]; then
+    echo "provider: $provider"
+    echo "class:    $(state_get ingress_class unknown)"
+    echo "service:  $(state_get ingress_namespace unknown)/$(state_get ingress_service unknown)"
+    echo "address:  $(state_get ingress_external_address unknown)"
+    echo "owned:    $(state_get ingress_installed_by_us false)"
+    kubectl get service "$(state_get ingress_service "")" \
+        -n "$(state_get ingress_namespace "")" -o wide 2>/dev/null || true
+else
+    echo "No ingress selected by this reference."
+    kubectl get ingressclass 2>/dev/null || true
+fi

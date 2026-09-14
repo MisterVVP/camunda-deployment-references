@@ -6,6 +6,8 @@ cd "$ROOT_DIR"
 
 MODE="domain"
 SECONDARY_STORAGE="elasticsearch"
+INGRESS_PROVIDER="auto"
+INGRESS_ADDRESS=""
 ASSUME_YES=false
 SKIP_PREREQUISITES=false
 
@@ -18,14 +20,23 @@ Golden-path local Camunda installation on MicroK8s.
 Options:
   --secondary-storage elasticsearch|postgres  Default: elasticsearch
   --mode domain|no-domain                     Default: domain
+  --ingress-provider auto|traefik|contour     Default: auto
+  --ingress-address IP                        Override the detected ingress address
   --yes, -y                                   Accept prerequisite installation
   --skip-prerequisites                        Only run prerequisite checks
   --help, -h                                  Show this help
+
+Ingress behavior in domain mode:
+  auto      Reuse an existing Traefik first, then Contour; install Contour only
+            when neither supported controller exists.
+  traefik   Require and reuse an existing Traefik ingress controller.
+  contour   Reuse existing Contour, or install Contour if no ingress controller exists.
 
 Examples:
   ./install.sh
   ./install.sh --yes
   ./install.sh --secondary-storage postgres
+  ./install.sh --ingress-provider traefik
   ./install.sh --mode no-domain --secondary-storage postgres
 USAGE
 }
@@ -40,6 +51,16 @@ while (($#)); do
         --mode)
             [[ $# -ge 2 ]] || { echo "ERROR: --mode needs a value." >&2; exit 2; }
             MODE="$2"
+            shift 2
+            ;;
+        --ingress-provider)
+            [[ $# -ge 2 ]] || { echo "ERROR: --ingress-provider needs a value." >&2; exit 2; }
+            INGRESS_PROVIDER="$2"
+            shift 2
+            ;;
+        --ingress-address)
+            [[ $# -ge 2 ]] || { echo "ERROR: --ingress-address needs a value." >&2; exit 2; }
+            INGRESS_ADDRESS="$2"
             shift 2
             ;;
         --yes|-y)
@@ -70,6 +91,13 @@ done
     echo "ERROR: --mode must be domain or no-domain." >&2
     exit 2
 }
+[[ "$INGRESS_PROVIDER" == "auto" || "$INGRESS_PROVIDER" == "traefik" || "$INGRESS_PROVIDER" == "contour" ]] || {
+    echo "ERROR: --ingress-provider must be auto, traefik, or contour." >&2
+    exit 2
+}
+if [[ "$MODE" == "no-domain" && ( "$INGRESS_PROVIDER" != "auto" || -n "$INGRESS_ADDRESS" ) ]]; then
+    echo "WARNING: ingress options are ignored in no-domain mode." >&2
+fi
 
 # The current reference deliberately owns Linux host networking, /etc/hosts and
 # MicroK8s hostpath cleanup. MicroK8s on macOS/Windows runs in a VM, so pretending
@@ -107,5 +135,5 @@ else
     ./procedure/install-prerequisites.sh "${prereq_args[@]}"
 fi
 
-export SECONDARY_STORAGE
+export SECONDARY_STORAGE INGRESS_PROVIDER INGRESS_ADDRESS
 exec make "${MODE}.init"

@@ -80,24 +80,56 @@ claim_cluster_resource keycloak_operator_installed_by_us "Keycloak operator CRDs
 (
     cd "$OPERATOR_BASE/keycloak"
     if [[ "$CAMUNDA_MODE" == "domain" ]]; then
-        KEYCLOAK_CONFIG_FILE="keycloak-instance-domain-contour.yml" ./deploy.sh
+        require_cmd python3
+        ingress_class="$(state_get ingress_class "")"
+        if [[ -z "$ingress_class" ]]; then
+            echo "ERROR: ingress class state is missing. Run make ingress.configure first." >&2
+            exit 1
+        fi
+
+        # The shared Keycloak domain manifest is maintained by the Kind reference
+        # and currently names Contour explicitly. Generate a local copy with only
+        # the IngressClass changed, so MicroK8s can reuse a pre-existing Traefik or
+        # Contour without forking the rest of the Keycloak configuration.
+        keycloak_source="$OPERATOR_BASE/keycloak/keycloak-instance-domain-contour.yml"
+        keycloak_config="$STATE_DIR/keycloak-instance-domain.yml"
+        python3 - "$keycloak_source" "$keycloak_config" "$ingress_class" <<'PY'
+from pathlib import Path
+import sys
+
+source, target, ingress_class = sys.argv[1:]
+text = Path(source).read_text()
+needle = "    ingressClassName: contour\n"
+if text.count(needle) != 1:
+    raise SystemExit("ERROR: expected exactly one Contour IngressClass in the shared Keycloak manifest")
+Path(target).write_text(text.replace(needle, f"    ingressClassName: {ingress_class}\n"))
+PY
+        KEYCLOAK_CONFIG_FILE="$keycloak_config" ./deploy.sh
     else
         KEYCLOAK_CONFIG_FILE="keycloak-instance-no-domain.yml" ./deploy.sh
     fi
 )
 
 if [[ "$CAMUNDA_MODE" == "domain" ]]; then
-    echo "Waiting for Keycloak through Contour..."
+    ingress_provider="$(state_get ingress_provider "")"
+    ingress_address="$(state_get ingress_external_address "")"
+    if [[ -z "$ingress_address" ]]; then
+        echo "ERROR: ingress external address is missing." >&2
+        exit 1
+    fi
+
+    echo "Waiting for Keycloak through ${ingress_provider:-selected} ingress at $ingress_address..."
     probe_url="https://${CAMUNDA_DOMAIN}/auth/realms/master/.well-known/openid-configuration"
     for attempt in $(seq 1 60); do
         if curl -fsSk -o /dev/null \
-            --resolve "${CAMUNDA_DOMAIN}:443:127.0.0.1" \
+            --resolve "${CAMUNDA_DOMAIN}:443:${ingress_address}" \
             --connect-timeout 5 --max-time 10 "$probe_url"; then
             echo "✓ Keycloak reachable through ingress."
             break
         fi
         if [[ "$attempt" -eq 60 ]]; then
             echo "ERROR: Keycloak did not become reachable through ingress." >&2
+            echo "       Provider: ${ingress_provider:-unknown}, address: $ingress_address" >&2
             exit 1
         fi
         sleep 5

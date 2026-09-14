@@ -47,7 +47,7 @@ if [[ "$ownership_state_present" == "false" ]] || state_true namespace_created_b
     fi
 fi
 
-if [[ "$ownership_state_present" == "false" ]] || state_true contour_installed_by_us; then
+if state_true contour_installed_by_us; then
     check_absent "projectcontour namespace" kubectl get namespace projectcontour
 fi
 

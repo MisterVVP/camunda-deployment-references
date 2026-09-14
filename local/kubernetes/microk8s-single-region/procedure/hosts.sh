@@ -12,29 +12,60 @@ if [[ "$ACTION" != "remove" ]] && grep -Fq "$MARKER" /etc/hosts \
     exit 1
 fi
 
-add_host() {
+host_has_mapping() {
+    local host="$1" address="$2"
+    awk -v host="$host" -v address="$address" '
+        $1 == address {
+            for (i = 2; i <= NF; i++) {
+                if ($i == "#") break
+                if ($i == host) found = 1
+            }
+        }
+        END { exit(found ? 0 : 1) }
+    ' /etc/hosts
+}
+
+host_exists() {
     local host="$1"
-    if grep -Eq "^[[:space:]]*127\.0\.0\.1[[:space:]]+${host//./\\.}([[:space:]]|$)" /etc/hosts; then
-        echo "Host '$host' already resolves to 127.0.0.1; leaving the existing entry untouched."
+    awk -v host="$host" '
+        {
+            for (i = 2; i <= NF; i++) {
+                if ($i == "#") break
+                if ($i == host) found = 1
+            }
+        }
+        END { exit(found ? 0 : 1) }
+    ' /etc/hosts
+}
+
+add_host() {
+    local host="$1" address="$2"
+    if host_has_mapping "$host" "$address"; then
+        echo "Host '$host' already resolves to $address; leaving the existing entry untouched."
         return
     fi
-    if grep -Eq "(^|[[:space:]])${host//./\\.}([[:space:]]|$)" /etc/hosts; then
-        echo "ERROR: '$host' already exists in /etc/hosts with a non-local mapping." >&2
-        echo "Refusing to add a conflicting entry." >&2
+    if host_exists "$host"; then
+        echo "ERROR: '$host' already exists in /etc/hosts with a different mapping." >&2
+        echo "Refusing to replace a pre-existing entry." >&2
         exit 1
     fi
-    printf '127.0.0.1 %s %s\n' "$host" "$MARKER" | sudo tee -a /etc/hosts >/dev/null
-    echo "Added /etc/hosts entry for $host."
+    printf '%s %s %s\n' "$address" "$host" "$MARKER" | sudo tee -a /etc/hosts >/dev/null
+    echo "Added /etc/hosts entry: $address $host"
 }
 
 case "$ACTION" in
     add-domain)
-        add_host camunda.example.com
-        add_host zeebe-camunda.example.com
+        ingress_address="$(state_get ingress_external_address "")"
+        if [[ -z "$ingress_address" ]]; then
+            echo "ERROR: ingress external address is missing. Run make ingress.configure first." >&2
+            exit 1
+        fi
+        add_host camunda.example.com "$ingress_address"
+        add_host zeebe-camunda.example.com "$ingress_address"
         state_set hosts_domain_touched true
         ;;
     add-keycloak)
-        add_host keycloak-service
+        add_host keycloak-service 127.0.0.1
         state_set hosts_keycloak_touched true
         ;;
     remove)

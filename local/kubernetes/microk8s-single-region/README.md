@@ -25,7 +25,8 @@ The deployment uses:
 
 - MicroK8s
 - `microk8s-hostpath` persistent storage
-- Contour/Envoy on host ports 80 and 443
+- an existing supported ingress controller when possible (Traefik preferred, then Contour)
+- a locally-installed Contour fallback only when no supported ingress exists
 - `https://camunda.example.com`
 - mkcert TLS
 - ECK-managed single-node Elasticsearch
@@ -39,6 +40,55 @@ RDBMS secondary storage and no-domain mode remain supported:
 ./install.sh --mode no-domain
 ./install.sh --mode no-domain --secondary-storage postgres
 ```
+
+## Ingress selection
+
+Domain/TLS mode is ingress-provider aware. The golden path does **not** ask users
+to uninstall a working ingress controller and does not install a second controller
+when a supported one is already available.
+
+With the default `--ingress-provider auto`, the installer:
+
+1. reuses an existing Traefik ingress controller, if available;
+2. otherwise reuses an existing Contour ingress controller;
+3. otherwise installs the local Contour/Envoy fallback.
+
+MicroK8s 1.35+ uses Traefik for the `ingress` addon, so Traefik is the
+normal golden path on an already-used MicroK8s cluster. If Traefik is exposed by
+a `LoadBalancer` service, the installer uses its external IP for `/etc/hosts`.
+This works naturally with the MicroK8s MetalLB addon; for example, an existing
+Traefik service with external IP `192.168.1.240` results in:
+
+```text
+192.168.1.240 camunda.example.com
+192.168.1.240 zeebe-camunda.example.com
+```
+
+Inside the cluster, CoreDNS resolves the same names to the selected ingress
+Service (for example `traefik.ingress.svc.cluster.local`). This keeps Keycloak
+OIDC discovery on the same public hostname while avoiding a host-network port
+conflict.
+
+Traefik receives a provider-specific h2c annotation for the Zeebe gRPC ingress.
+Contour needs no additional gRPC annotation.
+
+To require a provider explicitly:
+
+```bash
+./install.sh --ingress-provider traefik
+./install.sh --ingress-provider contour
+```
+
+If the controller is reachable on a known IPv4 address that Kubernetes does not
+report on its Service, provide it explicitly:
+
+```bash
+./install.sh --ingress-address 192.168.1.240
+```
+
+The installer never disables or reconfigures a pre-existing Traefik, Contour, or
+MetalLB installation. Reused ingress infrastructure is recorded as pre-existing
+and is left untouched by `make purge`.
 
 ## Prerequisites and bootstrap
 
@@ -97,14 +147,15 @@ recommends at least 12 GB available for the Elasticsearch profile.
 
 The Camunda Helm values in `../kind-single-region/helm-values` are not
 Kind-specific in practice: they describe the local domain/no-domain topology,
-Contour ingress, mkcert trust, local resource limits, and secondary-storage
-overlays. This MicroK8s reference deliberately reuses those values and shared
-helpers, while keeping Kubernetes-distribution-specific behavior here:
+mkcert trust, local resource limits, and secondary-storage overlays. This
+MicroK8s reference deliberately reuses those values and shared helpers, then
+layers a generated ingress-provider override on top. Distribution-specific
+behavior remains here:
 
 - cluster preparation
 - MicroK8s addons/storage
 - single-node Elasticsearch
-- Contour scheduling
+- ingress discovery/selection and Contour fallback installation
 - CoreDNS mutation
 - installation ownership tracking
 - prerequisite bootstrap
@@ -163,7 +214,7 @@ Purge removes resources created by this reference, including:
 - the Camunda release and `camunda` namespace
 - Elasticsearch, PostgreSQL, Keycloak resources and their PVC/PVs
 - ECK, CloudNativePG, and Keycloak CRDs/operators if this reference installed them
-- Contour/Envoy and Contour CRDs
+- Contour/Envoy and Contour CRDs **only when this reference installed Contour**
 - container images pulled for these workloads, unless they existed before install or are still used elsewhere
 - the Camunda CoreDNS rewrite block
 - `/etc/hosts` lines marked by this reference
@@ -171,10 +222,11 @@ Purge removes resources created by this reference, including:
 - MicroK8s `dns` / `hostpath-storage` addons **only if this reference enabled them**
 - repo-local Helm, mkcert, kubectl wrapper and bootstrap metadata
 
-The installer refuses to adopt an existing Camunda namespace, Contour
-installation, ECK installation, CloudNativePG installation, or Keycloak CRDs.
-That is intentional: it makes the ownership boundary clear enough for purge to
-be safe.
+The installer refuses to adopt an existing Camunda namespace, ECK installation,
+CloudNativePG installation, or Keycloak CRDs. Existing supported Traefik/Contour
+ingress infrastructure is different: it is intentionally reused read-only and
+recorded as pre-existing, so purge never deletes it. MetalLB is never owned or
+modified by this reference.
 
 Do not delete `.state/` before running purge. It is the ownership record used to
 distinguish resources created by this reference from resources that existed

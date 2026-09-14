@@ -10,6 +10,8 @@ set -euo pipefail
 #                      Controls the secondary storage backend.
 #                      - elasticsearch: Uses Elasticsearch (full platform with Optimize)
 #                      - postgres: Uses PostgreSQL RDBMS only (Optimize disabled)
+#   CAMUNDA_EXTRA_VALUES_FILE: optional final Helm values file for local-provider
+#                              overrides; unset for the Kind reference itself.
 
 # Parked: pre-GA dev chart tag until 8.10 GA.
 # renovate: datasource=helm depName=camunda-platform versioning=regex:^15(\.(?<minor>\d+))?(\.(?<patch>\d+))?$ registryUrl=https://helm.camunda.io renovate-inert-ok
@@ -34,6 +36,17 @@ if [[ "$SECONDARY_STORAGE" != "elasticsearch" && "$SECONDARY_STORAGE" != "postgr
     exit 1
 fi
 
+# Optional final values layer used by other local Kubernetes references (for
+# example MicroK8s ingress-provider overrides). Kind itself leaves this unset.
+EXTRA_VALUES_ARGS=()
+if [[ -n "${CAMUNDA_EXTRA_VALUES_FILE:-}" ]]; then
+    if [[ ! -f "$CAMUNDA_EXTRA_VALUES_FILE" ]]; then
+        echo "ERROR: CAMUNDA_EXTRA_VALUES_FILE does not exist: $CAMUNDA_EXTRA_VALUES_FILE" >&2
+        exit 1
+    fi
+    EXTRA_VALUES_ARGS+=(--values "$CAMUNDA_EXTRA_VALUES_FILE")
+fi
+
 # Pre-release only: build the chart from source so no registry login is needed.
 # TODO: [release-duty] drop this and build-camunda-chart.sh; use the standard Helm install below.
 LOCAL_CHART="$("$SCRIPT_DIR/build-camunda-chart.sh")"
@@ -48,7 +61,8 @@ if [[ "$SECONDARY_STORAGE" == "elasticsearch" ]]; then
         --values "$OPERATOR_VALUES_DIR/postgresql/camunda-identity-values.yml" \
         --values "$OPERATOR_VALUES_DIR/postgresql/camunda-webmodeler-values.yml" \
         --values helm-values/values-domain.yml \
-        --values helm-values/values-mkcert.yml
+        --values helm-values/values-mkcert.yml \
+        "${EXTRA_VALUES_ARGS[@]}"
 else
     echo "Installing Camunda Platform (domain mode, PostgreSQL RDBMS)..."
 
@@ -59,7 +73,8 @@ else
         --values "$OPERATOR_VALUES_DIR/postgresql/camunda-webmodeler-values.yml" \
         --values helm-values/values-domain.yml \
         --values "$OPERATOR_VALUES_DIR/postgresql/camunda-rdbms-values.yml" \
-        --values helm-values/values-mkcert.yml
+        --values helm-values/values-mkcert.yml \
+        "${EXTRA_VALUES_ARGS[@]}"
 fi
 
 # Wait (bounded, fail-open) for the public Keycloak issuer, then restart the app
@@ -86,7 +101,8 @@ fi
 #         --values "$OPERATOR_VALUES_DIR/postgresql/camunda-identity-values.yml" \
 #         --values "$OPERATOR_VALUES_DIR/postgresql/camunda-webmodeler-values.yml" \
 #         --values helm-values/values-domain.yml \
-#         --values helm-values/values-mkcert.yml
+#         --values helm-values/values-mkcert.yml \
+#         "${EXTRA_VALUES_ARGS[@]}"
 # else
 #     helm upgrade --install "camunda" camunda-platform \
 #         --repo https://helm.camunda.io \
@@ -97,7 +113,8 @@ fi
 #         --values "$OPERATOR_VALUES_DIR/postgresql/camunda-webmodeler-values.yml" \
 #         --values helm-values/values-domain.yml \
 #         --values "$OPERATOR_VALUES_DIR/postgresql/camunda-rdbms-values.yml" \
-#         --values helm-values/values-mkcert.yml
+#         --values helm-values/values-mkcert.yml \
+#         "${EXTRA_VALUES_ARGS[@]}"
 # fi
 
 echo ""
