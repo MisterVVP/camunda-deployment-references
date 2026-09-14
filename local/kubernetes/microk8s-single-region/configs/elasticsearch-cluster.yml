@@ -19,6 +19,12 @@ spec:
           config:
               node.store.allow_mmap: 'false'
               logger.org.elasticsearch.deprecation: "OFF"
+              # ECK normally publishes HTTP via
+              # ${POD_NAME}.${HEADLESS_SERVICE_NAME}.${NAMESPACE}.svc. On a
+              # single-node local cluster that makes Elasticsearch bootstrap
+              # depend on CoreDNS/headless-service propagation. ECK already
+              # injects POD_IP, so publish HTTP directly on the pod address.
+              http.publish_host: "${POD_IP}"
           podTemplate:
               spec:
                   containers:
