@@ -19,6 +19,12 @@ chmod 600 "$KUBECONFIG"
 echo "Using MicroK8s kubeconfig: $KUBECONFIG"
 kubectl get nodes
 
+# A long-lived local MicroK8s node can change IP (for example via DHCP) while
+# kubelet.crt still contains only the old address. That breaks kubectl logs/exec
+# because the API server verifies the kubelet serving certificate against the
+# node InternalIP. Detect and repair that drift before deploying any workloads.
+"$SCRIPT_DIR/kubelet-cert-ensure.sh"
+
 dns_owner="$(state_get dns_enabled_by_us __unset__)"
 if ! kubectl -n kube-system get deployment coredns >/dev/null 2>&1; then
     echo "Enabling MicroK8s DNS addon..."

@@ -135,5 +135,17 @@ else
     ./procedure/install-prerequisites.sh "${prereq_args[@]}"
 fi
 
-export SECONDARY_STORAGE INGRESS_PROVIDER INGRESS_ADDRESS
+# A stale MicroK8s kubelet certificate is a cluster-level problem rather than a
+# Camunda problem. In interactive installs we ask before repairing it; --yes also
+# accepts that narrowly-scoped repair. Callers can override explicitly with
+# MICROK8S_CERT_REPAIR=prompt|yes|no.
+if [[ -z "${MICROK8S_CERT_REPAIR:-}" ]]; then
+    if [[ "$ASSUME_YES" == "true" ]]; then
+        MICROK8S_CERT_REPAIR=yes
+    else
+        MICROK8S_CERT_REPAIR=prompt
+    fi
+fi
+
+export SECONDARY_STORAGE INGRESS_PROVIDER INGRESS_ADDRESS MICROK8S_CERT_REPAIR
 exec make "${MODE}.init"
