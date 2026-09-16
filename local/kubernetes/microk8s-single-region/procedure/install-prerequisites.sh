@@ -5,7 +5,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 CHECK_ONLY=false
 ASSUME_YES=false
 MICROK8S_CHANNEL="${MICROK8S_CHANNEL:-1.35/stable}"
-HELM_VERSION="${HELM_VERSION:-v3.22.0}"
+HELM_VERSION="${HELM_VERSION:-v4.3.0}"
 MKCERT_VERSION="${MKCERT_VERSION:-v1.4.4}"
 YQ_VERSION="v4.53.6"
 BOOTSTRAP_STATE="$TOOLS_DIR/bootstrap-state"
@@ -84,6 +84,16 @@ check_all() {
         echo "       Run ./install.sh (golden path) or make prerequisites." >&2
         return 1
     fi
+
+    local helm_version helm_major
+    helm_version="$(helm version --short 2>/dev/null || true)"
+    helm_major="$(sed -nE 's/^v([0-9]+).*/\1/p' <<<"$helm_version")"
+    if [[ -z "$helm_major" ]] || (( helm_major < 4 )); then
+        echo "ERROR: Helm v4 or later is required; detected: ${helm_version:-unknown}" >&2
+        echo "       Run ./install.sh to install the pinned repo-local Helm ${HELM_VERSION}." >&2
+        return 1
+    fi
+
     echo "✓ Prerequisites available"
 }
 
@@ -116,13 +126,22 @@ sha256_file() {
 }
 
 install_helm_local() {
-    [[ -x "$TOOLS_BIN/helm" ]] && return
-    local os="$1" arch archive url expected actual tmp
+    local os="$1" arch archive url expected actual tmp current_version=""
+
+    if [[ -x "$TOOLS_BIN/helm" ]]; then
+        current_version="$("$TOOLS_BIN/helm" version --short 2>/dev/null | sed 's/+.*//' || true)"
+        if [[ "$current_version" == "$HELM_VERSION" ]]; then
+            return
+        fi
+        echo "Upgrading repo-local Helm from ${current_version:-unknown} to ${HELM_VERSION}..."
+    else
+        echo "Installing Helm ${HELM_VERSION} into .tools/bin..."
+    fi
+
     arch="$(platform_arch)"
     archive="helm-${HELM_VERSION}-${os}-${arch}.tar.gz"
     url="https://get.helm.sh/${archive}"
     tmp="$(mktemp -d)"
-    echo "Installing Helm ${HELM_VERSION} into .tools/bin..."
     curl -fsSL "$url" -o "$tmp/$archive"
     expected="$(curl -fsSL "$url.sha256sum" | awk '{print $1}')"
     actual="$(sha256_file "$tmp/$archive")"
