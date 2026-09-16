@@ -27,7 +27,14 @@ CNPG_VERSION="1.30.0"
 
 # Auto-detect OpenShift by checking for the route.openshift.io API group
 is_openshift() {
-    kubectl api-resources --api-group=route.openshift.io --no-headers >/dev/null 2>&1
+    kubectl api-resources --api-group=route.openshift.io --no-headers 2>/dev/null | grep -q .
+}
+
+require_yq() {
+    command -v yq >/dev/null 2>&1 || {
+        echo "ERROR: yq is required for this PostgreSQL deployment path." >&2
+        exit 1
+    }
 }
 
 CNPG_MANIFEST_URL="https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-${CNPG_VERSION%.*}/releases/cnpg-${CNPG_VERSION}.yaml"
@@ -41,6 +48,7 @@ else
     # On OpenShift, the upstream manifest has hardcoded runAsUser/runAsGroup
     # that are rejected by the restricted-v2 SCC — download and patch them out
     echo "OpenShift detected - patching manifest for SCC compatibility..."
+    require_yq
     curl -sL "${CNPG_MANIFEST_URL}" > /tmp/cnpg-manifest.yaml
     yq -i '(select(.kind == "Deployment" and .metadata.name == "cnpg-controller-manager") | .spec.template.spec.containers[].securityContext) |= del(.runAsUser, .runAsGroup)' /tmp/cnpg-manifest.yaml
     kubectl apply -n "$OPERATOR_NAMESPACE" --server-side -f /tmp/cnpg-manifest.yaml
@@ -64,6 +72,7 @@ if [[ -z "$CLUSTER_FILTER" ]]; then
     kubectl wait --for=condition=Ready --timeout=600s cluster --all -n "$CAMUNDA_NAMESPACE"
 else
     echo "Filtered deployment: $CLUSTER_FILTER"
+    require_yq
     IFS=',' read -ra CLUSTERS <<< "$CLUSTER_FILTER"
     for cluster in "${CLUSTERS[@]}"; do
         # pg-camunda is defined in a separate orchestration manifest

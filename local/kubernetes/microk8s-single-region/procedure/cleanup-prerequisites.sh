@@ -59,7 +59,7 @@ if [[ "$strict" == "1" && -f "$BOOTSTRAP_STATE" ]]; then
     fi
 fi
 
-# Helm, mkcert and the kubectl/microk8s wrappers are deliberately repo-local.
+# Helm, mkcert, yq and the kubectl/microk8s wrappers are deliberately repo-local.
 rm -rf "$TOOLS_DIR"
 if [[ "$strict" == "1" ]]; then
     echo "✓ Bootstrap tools and owned host prerequisites cleaned."

@@ -7,6 +7,7 @@ ASSUME_YES=false
 MICROK8S_CHANNEL="${MICROK8S_CHANNEL:-1.35/stable}"
 HELM_VERSION="${HELM_VERSION:-v3.22.0}"
 MKCERT_VERSION="${MKCERT_VERSION:-v1.4.4}"
+YQ_VERSION="v4.53.6"
 BOOTSTRAP_STATE="$TOOLS_DIR/bootstrap-state"
 TOOLS_BIN="$TOOLS_DIR/bin"
 
@@ -75,7 +76,7 @@ confirm() {
 
 check_all() {
     local missing=() cmd
-    for cmd in microk8s kubectl helm curl git make openssl mkcert envsubst; do
+    for cmd in microk8s kubectl helm curl git make openssl mkcert yq envsubst; do
         command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
     done
     if ((${#missing[@]})); then
@@ -147,6 +148,34 @@ install_mkcert_local() {
     chmod 0755 "$TOOLS_BIN/mkcert"
 }
 
+install_yq_local() {
+    [[ -x "$TOOLS_BIN/yq" ]] && return
+    local os="$1" arch asset expected actual
+    arch="$(platform_arch)"
+    asset="yq_${os}_${arch}"
+
+    case "${os}/${arch}" in
+        linux/amd64) expected="c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385" ;;
+        linux/arm64) expected="88a1016bc1d657375a35864e4f44b6f333df8ff97b559f51bba0adcb2169df09" ;;
+        darwin/amd64) expected="caa513cb04f3804b34d4752f0e0d7904fecb9e7cf1d34081289f83259319a7f6" ;;
+        darwin/arm64) expected="cceb0b8d71ea5294334121f8429f33f92b920e7217d904a2f9f35443968ac424" ;;
+        *) echo "ERROR: unsupported yq platform: ${os}/${arch}" >&2; exit 1 ;;
+    esac
+
+    mkdir -p "$TOOLS_BIN"
+    echo "Installing yq ${YQ_VERSION} into .tools/bin..."
+    curl -fsSL \
+        "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/${asset}" \
+        -o "$TOOLS_BIN/yq"
+    actual="$(sha256_file "$TOOLS_BIN/yq")"
+    if [[ "$actual" != "$expected" ]]; then
+        rm -f "$TOOLS_BIN/yq"
+        echo "ERROR: yq checksum mismatch." >&2
+        exit 1
+    fi
+    chmod 0755 "$TOOLS_BIN/yq"
+}
+
 write_microk8s_wrappers() {
     local real_microk8s="$1"
     mkdir -p "$TOOLS_BIN"
@@ -198,7 +227,7 @@ install_linux() {
     echo "Prerequisite bootstrap will:"
     ((${#missing[@]})) && echo "  - install apt packages: ${missing[*]}"
     [[ "$need_microk8s" == "true" ]] && echo "  - install MicroK8s from channel ${MICROK8S_CHANNEL}"
-    echo "  - install pinned Helm and mkcert binaries under .tools/bin"
+    echo "  - install pinned Helm, mkcert and yq binaries under .tools/bin"
     echo "  - use MicroK8s' bundled kubectl (no global kubectl install)"
     if ! confirm "Continue?"; then
         echo "Aborted."
@@ -228,6 +257,7 @@ install_linux() {
 
     install_helm_local linux
     install_mkcert_local linux
+    install_yq_local linux
     bootstrap_set platform linux
     bootstrap_set completed true
 }
@@ -272,6 +302,7 @@ install_macos() {
     write_microk8s_wrappers "$real_microk8s"
     install_helm_local darwin
     install_mkcert_local darwin
+    install_yq_local darwin
     bootstrap_set platform darwin
     bootstrap_set completed true
 }

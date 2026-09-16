@@ -58,8 +58,8 @@ claim_cluster_resource cnpg_installed_by_us "CloudNativePG installation" \
     cd "$OPERATOR_BASE/postgresql"
 
     # Deploy the three application PostgreSQL clusters without CLUSTER_FILTER.
-    # The generic deploy script only needs yq for filtered deployment, so this
-    # keeps yq out of the local MicroK8s dependency set entirely.
+    # yq is still a prerequisite of the shared PostgreSQL deployment script
+    # (filtered deployments and the OpenShift compatibility path use it).
     CLUSTER_FILTER="" ./deploy.sh
 
     if [[ "$SECONDARY_STORAGE" == "postgres" ]]; then
